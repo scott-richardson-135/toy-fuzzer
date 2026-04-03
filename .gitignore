@@ -1,1 +1,5 @@
 fuzzer
+target.c
+target
+
+crashes/

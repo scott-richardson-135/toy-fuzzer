@@ -3,10 +3,12 @@
 #include <time.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <sys/stat.h>
 
 
 #define MAX_INPUT  256
 #define INPUT_FILE  "/tmp/fuzz_input"
+#define ITERATIONS 1000
 
 
 void generate_random_input(unsigned char *buf, size_t len) {
@@ -50,6 +52,11 @@ int run_program(char *target, unsigned char *buf, size_t len) {
     return status;
 
 }
+
+int is_crash(int status) {
+    return WIFSIGNALED(status);
+}
+
 int main(int argc, char *argv[]) {
     if (argc < 2) {
         printf("Usage: %s <target binary>\n", argv[0]);
@@ -57,13 +64,36 @@ int main(int argc, char *argv[]) {
     }
 
     unsigned char buf[MAX_INPUT];
+    int crashes = 0;
 
     srand(time(NULL));
 
-    size_t len = (rand() % MAX_INPUT) + 1;
+    mkdir("crashes", 0755);
 
-    generate_random_input(buf, len);
+    for (int i = 0; i < ITERATIONS; i++) {
+        size_t len = (rand() % MAX_INPUT) + 1;
 
-    int status = run_program(argv[1], buf, len);
-    printf("Status: %d\n", status);
+        generate_random_input(buf, len);
+
+        int status = run_program(argv[1], buf, len);
+
+        if (is_crash(status)) {
+            crashes++;
+
+            printf("[Crash %d] - Crash on iteration %d (signal %d, len=%zu)\n", crashes, i, WTERMSIG(status), len);
+
+            //write crash to file
+            char crash_file[64];
+            snprintf(crash_file, sizeof(crash_file), "crashes/crash_%d.bin", crashes);
+
+            FILE *file = fopen(crash_file, "wb");
+            fwrite(buf, 1, len, file);
+            fclose(file);
+        }
+    }
+
+    printf("Done. %d crashes in %d iterations\n", crashes, ITERATIONS);
+    return 0;
+
+    
 }
