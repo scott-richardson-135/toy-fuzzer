@@ -4,17 +4,37 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/types.h>
+#include <dirent.h>
+#include <string.h>
+#include <limits.h>
 
 
-#define MAX_INPUT  256
+#define FUZZ_MAX_INPUT  256
+#define MAX_CORPUS 1000
 #define INPUT_FILE  "/tmp/fuzz_input"
 #define ITERATIONS 1000
+
+typedef struct  {
+    unsigned char bytes[FUZZ_MAX_INPUT];
+    size_t len;
+} corpus_entry;
+
+int corpus_count = 0;
+corpus_entry corpus_array[MAX_CORPUS];
 
 
 void generate_random_input(unsigned char *buf, size_t len) {
     for (int i = 0; i < len; i++) {
         buf[i] = rand() % 256;
     }
+}
+
+void mutate_bitflip(unsigned char *buf, size_t len) {
+    int bit_position = rand() % (len * 8);
+    int byte_index = bit_position / 8;  //which byte is modified based on this bit position
+    int bit_index = bit_position % 8;  //which bit within that byte needs to be modified
+    buf[byte_index] ^= (1 << bit_index);
 }
 
 int run_program(char *target, unsigned char *buf, size_t len) {
@@ -63,18 +83,64 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    unsigned char buf[MAX_INPUT];
-    int crashes = 0;
-
+    
     srand(time(NULL));
+
+    //load corpus files into memory
+    DIR *corpus_dir = opendir("corpus");
+    if (corpus_dir == NULL) {
+        perror("opendir");
+        return 1;
+    }
+
+    struct dirent *file;
+    while ((file = readdir(corpus_dir)) != NULL) {
+        if (strcmp(file->d_name, ".") == 0 || strcmp(file->d_name, "..") == 0) {
+            continue;
+        }
+        if (corpus_count >= MAX_CORPUS) {
+            break;
+        }
+
+        char filepath[PATH_MAX];
+        snprintf(filepath, sizeof(filepath), "corpus/%s", file->d_name);
+
+        corpus_entry *entry = &corpus_array[corpus_count]; //pointer to next open slot
+        FILE *corpus_file = fopen(filepath, "rb");
+        entry->len = fread(entry->bytes, 1, FUZZ_MAX_INPUT, corpus_file);
+        fclose(corpus_file);
+        corpus_count++;
+    } 
+    
+    closedir(corpus_dir);
+
+    //DEBUG
+    printf("Loaded %d corpus entries\n", corpus_count);
+    for (int i = 0; i < corpus_count; i++) {
+        printf("  [%d] len=%zu first_byte=0x%02X\n", i, corpus_array[i].len, corpus_array[i].bytes[0]);
+    }
+
+    unsigned char buf[FUZZ_MAX_INPUT];
+    int crashes = 0;
 
     mkdir("crashes", 0755);
 
     for (int i = 0; i < ITERATIONS; i++) {
-        size_t len = (rand() % MAX_INPUT) + 1;
+        //size_t len = (rand() % FUZZ_MAX_INPUT) + 1;
 
-        generate_random_input(buf, len);
+        //load random corpus file into working buffer
+        int index = rand() % corpus_count; 
+        corpus_entry *chosen = &corpus_array[index];
+        size_t len = chosen->len;
+        memcpy(buf, chosen->bytes, len);
 
+        //pick random mutation function, apply it to buffer
+        //right now just bitflip
+        mutate_bitflip(buf, len);     
+        //generate_random_input(buf, len);
+
+
+        //run program >:)
         int status = run_program(argv[1], buf, len);
 
         if (is_crash(status)) {
