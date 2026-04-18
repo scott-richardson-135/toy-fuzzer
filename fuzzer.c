@@ -23,6 +23,38 @@ typedef struct  {
 int corpus_count = 0;
 corpus_entry corpus_array[MAX_CORPUS];
 
+void mutate_bitflip(unsigned char *buf, size_t len) {
+    int bit_position = rand() % (len * 8);
+    int byte_index = bit_position / 8;  //which byte is modified based on this bit position
+    int bit_index = bit_position % 8;  //which bit within that byte needs to be modified
+    buf[byte_index] ^= (1 << bit_index);
+}
+
+void mutate_byte_random(unsigned char *buf, size_t len) {
+    int byte_position = rand() % len;
+    buf[byte_position] = rand() % 256;
+}
+
+void mutate_interesting(unsigned char *buf, size_t len) {
+    //try edge cases
+    int interesting[] = {0, 255, 127, 128, 1};
+    int byte_position = rand() % len;
+    int interesting_val = interesting[rand() % (sizeof(interesting) / sizeof(interesting[0]))];
+    buf[byte_position] = interesting_val;
+}
+
+void (*mutators[])(unsigned char *, size_t) = {
+    mutate_bitflip,
+    mutate_byte_random,
+};
+
+int num_mutators = sizeof(mutators) / sizeof(mutators[0]);
+
+void mutate(unsigned char *buf, size_t len) {
+    int r = rand() % num_mutators;
+    mutators[r](buf, len);
+}
+
 
 void generate_random_input(unsigned char *buf, size_t len) {
     for (int i = 0; i < len; i++) {
@@ -30,12 +62,7 @@ void generate_random_input(unsigned char *buf, size_t len) {
     }
 }
 
-void mutate_bitflip(unsigned char *buf, size_t len) {
-    int bit_position = rand() % (len * 8);
-    int byte_index = bit_position / 8;  //which byte is modified based on this bit position
-    int bit_index = bit_position % 8;  //which bit within that byte needs to be modified
-    buf[byte_index] ^= (1 << bit_index);
-}
+
 
 int run_program(char *target, unsigned char *buf, size_t len) {
     //write random input (buf) to file
@@ -135,9 +162,7 @@ int main(int argc, char *argv[]) {
         memcpy(buf, chosen->bytes, len);
 
         //pick random mutation function, apply it to buffer
-        //right now just bitflip
-        mutate_bitflip(buf, len);     
-        //generate_random_input(buf, len);
+        mutate(buf, len);     
 
 
         //run program >:)
