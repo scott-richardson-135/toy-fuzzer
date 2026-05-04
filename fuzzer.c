@@ -46,6 +46,7 @@ void mutate_interesting(unsigned char *buf, size_t len) {
 void (*mutators[])(unsigned char *, size_t) = {
     mutate_bitflip,
     mutate_byte_random,
+    mutate_interesting,
 };
 
 int num_mutators = sizeof(mutators) / sizeof(mutators[0]);
